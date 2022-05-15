@@ -38,6 +38,59 @@ local function tableHasKey(table,key)
     return table[key] ~= nil
 end
 
+local pressed = {}
+local events = {}
+
+local function normal_mode(self, event, char)
+    table.insert(events, event)
+
+    if event:getType() == hs.eventtap.event.keyDown and char then
+        table.insert(pressed, char)
+        return
+    end
+
+    handled = false
+    if #pressed > 1 then
+        paste_style(self,pressed)
+        handled = true
+    elseif #pressed == 1 then
+        -- handled = handle_single_key(self,pressed[1])
+    end
+
+    if not handled then
+        replay(self)
+    end
+
+    events = {}
+    pressed = {}
+    collectgarbage()
+end
+
+function replay(self)
+    inkscape = hs.application.get("Inkscape")
+    for _, e in ipairs(events) do
+        e:post(inkscape)
+    end
+end
+
+local function handle_single_key(self, ev)
+    if ev == 't' then
+        open_emacs(self,false)
+    elseif ev == 'T' then
+        open_emacs(self,true)
+    elseif ev == 'a' then
+        self.mode = object_mode
+    elseif ev == 'A' then
+        save_object_mode(self)
+    elseif ev == 's' then
+        self.mode = style_mode
+    elseif ev == 'S' then
+        save_style_mode(self)
+    else
+        return false
+    end
+    return true
+end
 
 local function create_svg_and_paste(self, keys)
 
@@ -180,28 +233,30 @@ end
 -- https://stackoverflow.com/q/63795560
 local InkscapeWF = hs.window.filter.new("Inkscape")
 
+-- Or use watcher if filter doesn't work reliably
+-- https://www.hammerspoon.org/docs/hs.application.watcher.html
+-- local InkscapeWatcher = hs.application.get("Inkscape").watcher.new(catcher)
+
+inkscape_shortcut_manager = {}
+inkscape_shortcut_manager.mode = normal_mode
+
 function catcher(event)
     if event:getFlags()['cmd'] then
         return false
     end
-    print(hs.inspect.inspect(event))
-    return true
+    char = event:getCharacters(true)
+    print(hs.inspect.inspect(char))
+    return true, inkscape_shortcut_manager.mode(self, event, char)
 end
-local tapper=hs.eventtap.new({hs.eventtap.event.types.keyDown, hs.eventtap.event.types.keyUp}, catcher)
+local tapper=hs.eventtap.new({hs.eventtap.event.types.keyUp,hs.eventtap.event.types.keyDown}, catcher)
 
 -- Subscribe to when your Inkscape window is focused and unfocused
 InkscapeWF
     :subscribe(hs.window.filter.windowFocused, function()
         print("starting keychords")
         tapper:start()
-        -- for k,v in pairs(keychords) do
-        --     v:start()
-        -- end
     end)
     :subscribe(hs.window.filter.windowUnfocused, function()
             print("stopping keychords")
             tapper:stop()
-            -- for k,v in pairs(keychords) do
-            --     v:stop()
-            -- end
     end)
